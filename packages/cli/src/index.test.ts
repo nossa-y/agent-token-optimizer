@@ -500,6 +500,110 @@ describe("agent-token-optimizer CLI", () => {
       }),
     );
   });
+
+  it("lists cache record counts per kind and keys for one kind", async () => {
+    const workspaceRoot = await createTemporaryWorkspace();
+    const cachePath = path.join(workspaceRoot, ".cache", "list.sqlite");
+    await seedHookCache(workspaceRoot, cachePath);
+
+    const listOutput = createOutput();
+    const listExitCode = await runCli(
+      ["cache", "list", "--cache-path", cachePath, "--json"],
+      {
+        cwd: workspaceRoot,
+        io: listOutput.io,
+      },
+    );
+
+    expect(listExitCode).toBe(0);
+    const listResult = JSON.parse(listOutput.stdout[0] ?? "{}") as {
+      readonly total: number;
+      readonly kinds: readonly { readonly kind: string; readonly records: number }[];
+    };
+    expect(listResult.total).toBeGreaterThan(0);
+    const recordsByKind = new Map(
+      listResult.kinds.map((entry) => [entry.kind, entry.records]),
+    );
+    expect(recordsByKind.get(STORE_KINDS.workspaceIndex)).toBe(1);
+    expect(recordsByKind.get(STORE_KINDS.userPromptHookEvidence)).toBe(1);
+
+    const detailOutput = createOutput();
+    const detailExitCode = await runCli(
+      ["cache", "list", STORE_KINDS.workspaceIndex, "--cache-path", cachePath, "--json"],
+      {
+        cwd: workspaceRoot,
+        io: detailOutput.io,
+      },
+    );
+
+    expect(detailExitCode).toBe(0);
+    const detailResult = JSON.parse(detailOutput.stdout[0] ?? "{}") as {
+      readonly kind: string;
+      readonly records: readonly { readonly key: string; readonly updatedAt: string }[];
+    };
+    expect(detailResult.kind).toBe(STORE_KINDS.workspaceIndex);
+    expect(detailResult.records).toHaveLength(1);
+    expect(detailResult.records[0]?.key.endsWith(":latest")).toBe(true);
+  });
+
+  it("evicts only the requested workspace's attributable cache records", async () => {
+    const workspaceA = await createTemporaryWorkspace();
+    const workspaceB = await createTemporaryWorkspace();
+    const cachePath = path.join(await createTemporaryWorkspace(), "evict.sqlite");
+    await seedHookCache(workspaceA, cachePath);
+    await seedHookCache(workspaceB, cachePath);
+
+    const optimizeOutput = createOutput();
+    const optimizeExitCode = await runCli(
+      [
+        "optimize",
+        "--workspace",
+        workspaceA,
+        "--task",
+        "Fix authentication session validation in src/session.ts",
+        "--cache",
+        "--cache-path",
+        cachePath,
+        "--json",
+      ],
+      { cwd: workspaceA, io: optimizeOutput.io },
+    );
+    expect(optimizeExitCode).toBe(0);
+
+    const evictOutput = createOutput();
+    const evictExitCode = await runCli(
+      ["cache", "evict", "--workspace", workspaceA, "--cache-path", cachePath, "--json"],
+      {
+        cwd: workspaceA,
+        io: evictOutput.io,
+      },
+    );
+
+    expect(evictExitCode).toBe(0);
+    const evictResult = JSON.parse(evictOutput.stdout[0] ?? "{}") as {
+      readonly evicted: number;
+      readonly evictedByKind: Readonly<Record<string, number>>;
+    };
+    expect(evictResult.evicted).toBeGreaterThanOrEqual(4);
+    expect(evictResult.evictedByKind[STORE_KINDS.workspaceIndex]).toBe(1);
+    expect(evictResult.evictedByKind[STORE_KINDS.contextRanking]).toBe(2);
+    expect(evictResult.evictedByKind[STORE_KINDS.userPromptHookEvidence]).toBe(1);
+
+    const store = new SqliteStore({ databasePath: cachePath });
+    await store.initialize();
+    try {
+      // The other workspace's records are preserved.
+      await expect(store.list(STORE_KINDS.workspaceIndex)).resolves.toHaveLength(1);
+      await expect(store.list(STORE_KINDS.userPromptHookEvidence)).resolves.toHaveLength(
+        1,
+      );
+      // Records without workspace attribution are intentionally kept.
+      await expect(store.list(STORE_KINDS.contextPack)).resolves.toHaveLength(1);
+      await expect(store.list(STORE_KINDS.tokenLedger)).resolves.toHaveLength(2);
+    } finally {
+      await store.close();
+    }
+  });
 });
 
 async function createTemporaryWorkspace(): Promise<string> {
@@ -507,6 +611,32 @@ async function createTemporaryWorkspace(): Promise<string> {
   temporaryRoots.push(rootPath);
 
   return rootPath;
+}
+
+async function seedHookCache(workspaceRoot: string, cachePath: string): Promise<void> {
+  await mkdir(path.join(workspaceRoot, "src"), { recursive: true });
+  await writeFile(
+    path.join(workspaceRoot, "src", "session.ts"),
+    "export function validateSession() { return false; }\n",
+  );
+
+  const output = createOutput();
+  const exitCode = await runCli(["hook", "user-prompt", "--cache-path", cachePath], {
+    cwd: workspaceRoot,
+    io: output.io,
+    readStdin: () =>
+      Promise.resolve(
+        JSON.stringify({
+          hook_event_name: "UserPromptSubmit",
+          cwd: workspaceRoot,
+          prompt: "Fix authentication session validation in src/session.ts",
+        }),
+      ),
+  });
+
+  if (exitCode !== 0) {
+    throw new Error(`Failed to seed hook cache: ${output.stderr.join("\n")}`);
+  }
 }
 
 async function createCliFixture(): Promise<{

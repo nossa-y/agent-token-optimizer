@@ -685,6 +685,49 @@ async function cacheCommand(
           `Migrations: ${health.migrationsApplied.join(", ")}`,
         ]);
       });
+    case "list":
+      return await withStore(cachePath, async (store) => {
+        const kind = parseStoreKind(args.positionals[1]);
+
+        if (kind) {
+          const records = await store.list(kind);
+
+          return writeOutput(
+            environment,
+            args,
+            {
+              cachePath,
+              kind,
+              records: records.map((record) => ({
+                key: record.key,
+                createdAt: record.createdAt,
+                updatedAt: record.updatedAt,
+              })),
+            },
+            [
+              `Cache: ${cachePath}`,
+              `Records of kind ${kind}: ${records.length}`,
+              ...records.map((record) => `- ${record.key} (updated ${record.updatedAt})`),
+            ],
+          );
+        }
+
+        const kinds = await Promise.all(
+          Object.values(STORE_KINDS).map(async (storeKind) => ({
+            kind: storeKind,
+            records: (await store.list(storeKind)).length,
+          })),
+        );
+        const total = kinds.reduce((sum, entry) => sum + entry.records, 0);
+
+        return writeOutput(environment, args, { cachePath, total, kinds }, [
+          `Cache: ${cachePath}`,
+          `Records: ${total}`,
+          ...kinds
+            .filter((entry) => entry.records > 0)
+            .map((entry) => `- ${entry.kind}: ${entry.records}`),
+        ]);
+      });
     case "clear":
       return await withStore(cachePath, async (store) => {
         const kind = parseStoreKind(args.positionals[1]);
@@ -693,6 +736,48 @@ async function cacheCommand(
           `Cleared ${cleared} cache records${kind ? ` of kind ${kind}` : ""}.`,
         ]);
       });
+    case "evict": {
+      const workspace = await getWorkspaceIdentity(
+        resolveWorkspaceRoot(args, environment),
+      );
+
+      return await withStore(cachePath, async (store) => {
+        const evictedByKind: Record<string, number> = {};
+        let evicted = 0;
+
+        for (const storeKind of Object.values(STORE_KINDS)) {
+          for (const record of await store.list(storeKind)) {
+            if (!cacheRecordMatchesWorkspace(record, workspace.rootHash)) {
+              continue;
+            }
+
+            if (await store.delete(storeKind, record.key)) {
+              evicted += 1;
+              evictedByKind[storeKind] = (evictedByKind[storeKind] ?? 0) + 1;
+            }
+          }
+        }
+
+        return writeOutput(
+          environment,
+          args,
+          {
+            cachePath,
+            workspaceRoot: workspace.rootPath,
+            workspaceRootHash: workspace.rootHash,
+            evicted,
+            evictedByKind,
+          },
+          [
+            `Evicted ${evicted} cache records for workspace ${workspace.rootPath}.`,
+            ...Object.entries(evictedByKind).map(
+              ([entryKind, count]) => `- ${entryKind}: ${count}`,
+            ),
+            "Records without workspace attribution (for example context packs and token ledgers) are kept; use `cache clear` to remove everything.",
+          ],
+        );
+      });
+    }
     case "repair":
       return await repairCacheCommand(cachePath, args, environment);
     default:
@@ -956,6 +1041,26 @@ function parseStoreKind(value: string | undefined): StoreRecordKind | undefined 
   throw new Error(`Unknown cache record kind: ${value}`);
 }
 
+function cacheRecordMatchesWorkspace(
+  record: { readonly key: string; readonly value: unknown },
+  workspaceRootHash: string,
+): boolean {
+  if (
+    record.key.startsWith(`${workspaceRootHash}:`) ||
+    record.key.includes(`:${workspaceRootHash}:`)
+  ) {
+    return true;
+  }
+
+  if (typeof record.value !== "object" || record.value === null) {
+    return false;
+  }
+
+  const value = record.value as { readonly workspaceRootHash?: unknown };
+
+  return value.workspaceRootHash === workspaceRootHash;
+}
+
 function numberFlag(args: ParsedArgs, name: string): number | undefined {
   const value = args.flags.get(name);
 
@@ -1009,7 +1114,7 @@ function helpText(): string {
     "  mcp        Run the MCP server over stdio",
     "  hook       Run a host lifecycle hook handler",
     "  optimize   Build a context pack for a task",
-    "  cache      Inspect, clear, or repair local cache",
+    "  cache      Inspect, list, clear, evict, or repair local cache",
     "",
     "Global options:",
     "  --workspace <path>   Workspace root, defaults to current directory",
@@ -1069,7 +1174,14 @@ function optimizeHelpText(): string {
 
 function cacheHelpText(): string {
   return [
-    "Usage: agent-token-optimizer cache [status|clear|repair] [kind] [--cache-path <path>] [--json]",
+    "Usage: agent-token-optimizer cache [status|list|clear|evict|repair] [kind] [--cache-path <path>] [--json]",
+    "",
+    "Actions:",
+    "  status   Show cache path, record count, and applied migrations",
+    "  list     Show record counts per kind, or record keys for one kind",
+    "  clear    Remove all records, or all records of one kind",
+    "  evict    Remove records attributed to one workspace (--workspace, defaults to the current directory)",
+    "  repair   Recreate the cache database in place",
     "",
     `Kinds: ${Object.values(STORE_KINDS).join(", ")}`,
   ].join("\n");
