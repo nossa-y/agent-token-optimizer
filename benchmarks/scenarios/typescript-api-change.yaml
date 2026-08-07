@@ -1,0 +1,24 @@
+{
+  "metadata": {
+    "contractVersion": "1.0",
+    "generatedAt": "2026-07-07T00:00:00.000Z",
+    "generator": {
+      "name": "agent-token-optimizer",
+      "version": "0.1.0"
+    }
+  },
+  "id": "typescript-api-change",
+  "name": "TypeScript API behavior change",
+  "description": "Update a small TypeScript API and its colocated test.",
+  "workspaceFixture": "typescript-api",
+  "task": "Update formatUserRecord in src/user-api.ts so it appends ' — active' or ' — inactive' after the existing display name and ID, and update src/user-api.test.ts to cover both states.",
+  "validation": {
+    "type": "command",
+    "command": "node \"$AGENT_TOKEN_OPTIMIZER_BENCHMARK_VALIDATOR\" typescript-api-change",
+    "expectedFiles": ["src/user-api.ts", "src/user-api.test.ts"]
+  },
+  "baseline": {
+    "enabled": true
+  },
+  "optimized": {}
+}

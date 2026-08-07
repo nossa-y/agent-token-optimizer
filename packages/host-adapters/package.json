@@ -1,0 +1,19 @@
+{
+  "name": "@agent-relay/agent-token-optimization-host-adapters",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Host detection and configuration adapters for Agent Token Optimizer.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@agent-relay/agent-token-optimization-core": "workspace:*"
+  }
+}

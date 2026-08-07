@@ -1,0 +1,12 @@
+{
+  "metadata": { "contractVersion": "1.0", "generatedAt": "2026-07-13T00:00:00.000Z", "generator": { "name": "agent-token-optimizer", "version": "0.1.0" } },
+  "id": "stack-trace-bug",
+  "name": "Stack trace bug report",
+  "description": "Use a stack frame and symbol from a bug report to retrieve the failing parser and regression test.",
+  "workspaceFixture": "session-service",
+  "task": "Fix the missing-token failure in parseSession (src/session/parser.ts) so it throws TypeError with the exact message 'Session token is required.' while valid tokens are still returned, and update the regression test.",
+  "validation": { "type": "command", "command": "node \"$AGENT_TOKEN_OPTIMIZER_BENCHMARK_VALIDATOR\" stack-trace-bug", "expectedFiles": ["src/session/parser.ts", "src/session/parser.test.ts"] },
+  "baseline": { "enabled": true },
+  "optimized": {},
+  "evaluation": {}
+}

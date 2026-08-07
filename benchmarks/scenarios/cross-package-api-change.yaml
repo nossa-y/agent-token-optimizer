@@ -1,0 +1,12 @@
+{
+  "metadata": { "contractVersion": "1.0", "generatedAt": "2026-07-13T00:00:00.000Z", "generator": { "name": "agent-token-optimizer", "version": "0.1.0" } },
+  "id": "cross-package-api-change",
+  "name": "Cross-package API change",
+  "description": "Add a contract field, update its service consumer, and cover the behavior with a test.",
+  "workspaceFixture": "monorepo-api",
+  "task": "Add a currency string to LedgerEntry in packages/contracts/src/ledger.ts. Update recordCharge in packages/service/src/record-charge.ts to accept currency, preserve it, and set reference to 'charge-' plus the lowercase currency. Update its test for recordCharge(20, 'USD').",
+  "validation": { "type": "command", "command": "node \"$AGENT_TOKEN_OPTIMIZER_BENCHMARK_VALIDATOR\" cross-package-api-change", "expectedFiles": ["packages/contracts/src/ledger.ts", "packages/service/src/record-charge.ts", "packages/service/src/record-charge.test.ts"] },
+  "baseline": { "enabled": true },
+  "optimized": {},
+  "evaluation": {}
+}

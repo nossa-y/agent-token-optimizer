@@ -1,0 +1,24 @@
+{
+  "name": "@agent-relay/agent-token-optimization-benchmarks",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Benchmark harness for Agent Token Optimizer.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "benchmark": "vitest run --root ../.. packages/benchmarks/src/runner.test.ts --reporter=dot",
+    "report": "vitest run --root ../.. packages/benchmarks/src/report.test.ts --reporter=dot"
+  },
+  "dependencies": {
+    "@agent-relay/agent-token-optimization-core": "workspace:*",
+    "@agent-relay/agent-token-optimization-host-adapters": "workspace:*",
+    "@agent-relay/agent-token-optimization-report-ui": "workspace:*"
+  }
+}

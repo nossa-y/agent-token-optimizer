@@ -1,0 +1,12 @@
+{
+  "metadata": { "contractVersion": "1.0", "generatedAt": "2026-07-13T00:00:00.000Z", "generator": { "name": "agent-token-optimizer", "version": "0.1.0" } },
+  "id": "skip-trivial-task",
+  "name": "Trivial targeted maintenance",
+  "description": "A direct, low-risk typo correction should recommend skipping optimization.",
+  "workspaceFixture": "trivial-maintenance",
+  "task": "Correct 'Recieve' to 'Receive'.",
+  "validation": { "type": "command", "command": "node \"$AGENT_TOKEN_OPTIMIZER_BENCHMARK_VALIDATOR\" skip-trivial-task", "expectedFiles": ["src/label.ts"] },
+  "baseline": { "enabled": true },
+  "optimized": {},
+  "evaluation": { "expectedOptimizationMode": "skip" }
+}

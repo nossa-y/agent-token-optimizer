@@ -1,0 +1,25 @@
+{
+  "name": "@agent-relay/agent-token-optimization-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Core contracts and optimization engine primitives for Agent Token Optimizer.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./contracts": {
+      "types": "./dist/contracts/index.d.ts",
+      "default": "./dist/contracts/index.js"
+    }
+  },
+  "dependencies": {
+    "sql.js": "^1.13.0",
+    "typescript": "^6.0.3",
+    "zod": "^4.4.3"
+  }
+}

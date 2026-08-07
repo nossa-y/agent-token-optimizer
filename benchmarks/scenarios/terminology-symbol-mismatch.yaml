@@ -1,0 +1,12 @@
+{
+  "metadata": { "contractVersion": "1.0", "generatedAt": "2026-07-13T00:00:00.000Z", "generator": { "name": "agent-token-optimizer", "version": "0.1.0" } },
+  "id": "terminology-symbol-mismatch",
+  "name": "Product terminology versus symbols",
+  "description": "Use a task term that maps to a differently named implementation symbol through a test relation.",
+  "workspaceFixture": "onboarding-ui",
+  "task": "Change renderWelcomeCard in src/welcome-card.ts to render exactly \"Hello, <member name> — let's get started.\" and update the onboarding flow test.",
+  "validation": { "type": "command", "command": "node \"$AGENT_TOKEN_OPTIMIZER_BENCHMARK_VALIDATOR\" terminology-symbol-mismatch", "expectedFiles": ["src/welcome-card.ts", "src/onboarding-flow.test.ts"] },
+  "baseline": { "enabled": true },
+  "optimized": {},
+  "evaluation": {}
+}

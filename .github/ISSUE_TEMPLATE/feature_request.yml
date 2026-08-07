@@ -1,0 +1,51 @@
+name: Feature Request
+description: Suggest an improvement or new host/workflow support.
+title: "[Feature]: "
+labels:
+  - enhancement
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What user workflow or operational gap should this solve?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed Solution
+      description: Describe the behavior, commands, or integration shape.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - User-prompt hook
+        - Install, doctor, or uninstall
+        - CLI
+        - Context selection
+        - Privacy or security
+        - Advanced MCP server
+        - Evaluations
+        - Documentation
+        - CI or operations
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: tradeoffs
+    attributes:
+      label: Tradeoffs And Risks
+      description: Note security, privacy, compatibility, or maintenance concerns.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope Check
+      options:
+        - label:
+            This request is compatible with a local, network-free runtime or explains why
+            the boundary should change.
+          required: true

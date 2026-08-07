@@ -1,0 +1,3 @@
+release:
+  rolloutTimeoutSeconds: 120
+  environments: [staging, production]

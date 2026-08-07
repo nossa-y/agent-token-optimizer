@@ -1,0 +1,12 @@
+{
+  "metadata": { "contractVersion": "1.0", "generatedAt": "2026-07-13T00:00:00.000Z", "generator": { "name": "agent-token-optimizer", "version": "0.1.0" } },
+  "id": "security-auth-change",
+  "name": "Security-sensitive authentication change",
+  "description": "Change token validation and add a regression test for expired credentials.",
+  "workspaceFixture": "auth-service",
+  "task": "Update validateBearerToken so tokens with expiresAt less than or equal to now are rejected, future non-empty tokens remain valid, and add security regression coverage for expired and boundary-time credentials.",
+  "validation": { "type": "command", "command": "node \"$AGENT_TOKEN_OPTIMIZER_BENCHMARK_VALIDATOR\" security-auth-change", "expectedFiles": ["src/auth/token.ts", "src/auth/token.test.ts"] },
+  "baseline": { "enabled": true },
+  "optimized": {},
+  "evaluation": {}
+}

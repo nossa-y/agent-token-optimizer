@@ -1,0 +1,15 @@
+node_modules/
+dist/
+coverage/
+artifacts/
+*.tsbuildinfo
+.playwright-cli/
+output/
+.DS_Store
+*.log
+.idea/
+.vscode/
+.agent-token-optimizer/
+.env
+.env.*
+!.env.example

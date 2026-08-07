@@ -1,0 +1,12 @@
+{
+  "metadata": { "contractVersion": "1.0", "generatedAt": "2026-07-13T00:00:00.000Z", "generator": { "name": "agent-token-optimizer", "version": "0.1.0" } },
+  "id": "distracting-large-repository",
+  "name": "Distracting similarly named repository",
+  "description": "Select the current billing implementation and test in the presence of many similarly named legacy files.",
+  "workspaceFixture": "billing-repository",
+  "task": "Update the active calculateInvoiceCharge implementation in src/billing/charge.ts to round the final charge to the nearest cent, and add the 10.01 subtotal at 20% tax case (12.01) to its related test. Do not edit legacy billing files.",
+  "validation": { "type": "command", "command": "node \"$AGENT_TOKEN_OPTIMIZER_BENCHMARK_VALIDATOR\" distracting-large-repository", "expectedFiles": ["src/billing/charge.ts", "src/billing/charge.test.ts"] },
+  "baseline": { "enabled": true },
+  "optimized": {},
+  "evaluation": { "expansionExpectedFiles": ["src/legacy/billing-charge-v1.ts"] }
+}

@@ -1,0 +1,12 @@
+{
+  "metadata": { "contractVersion": "1.0", "generatedAt": "2026-07-13T00:00:00.000Z", "generator": { "name": "agent-token-optimizer", "version": "0.1.0" } },
+  "id": "configuration-documentation-change",
+  "name": "Configuration and documentation change",
+  "description": "Update deployment configuration and the documentation that explains it.",
+  "workspaceFixture": "release-config",
+  "task": "Change the staging rollout timeout in config/release.yml from 120 to 180 seconds and update docs/release.md to state the 180-second timeout.",
+  "validation": { "type": "command", "command": "node \"$AGENT_TOKEN_OPTIMIZER_BENCHMARK_VALIDATOR\" configuration-documentation-change", "expectedFiles": ["config/release.yml", "docs/release.md"] },
+  "baseline": { "enabled": true },
+  "optimized": {},
+  "evaluation": {}
+}
