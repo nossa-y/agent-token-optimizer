@@ -421,6 +421,15 @@ async function hookCommand(
     return 2;
   }
 
+  const hookHost = stringFlag(args, "host");
+
+  if (hookHost !== undefined && hookHost !== "kimi") {
+    environment.io.stderr(
+      `Unknown hook host: ${hookHost}. Context injection was skipped.`,
+    );
+    return 0;
+  }
+
   try {
     const input = parseUserPromptHookInput(await environment.readStdin());
     const workspaceRoot = path.resolve(input.cwd);
@@ -446,18 +455,26 @@ async function hookCommand(
     });
 
     if (result.output) {
-      environment.io.stdout(JSON.stringify(result.output));
+      environment.io.stdout(
+        hookHost === "kimi"
+          ? result.output.hookSpecificOutput.additionalContext
+          : JSON.stringify(result.output),
+      );
     }
 
     return 0;
   } catch {
-    environment.io.stdout(
-      JSON.stringify({
-        continue: true,
-        systemMessage:
-          "Agent Token Optimizer skipped context injection because local hook processing failed.",
-      }),
-    );
+    // Kimi Code appends raw stdout to the turn context on exit 0, so failures
+    // must stay silent there; JSON hosts receive an explicit skip message.
+    if (hookHost !== "kimi") {
+      environment.io.stdout(
+        JSON.stringify({
+          continue: true,
+          systemMessage:
+            "Agent Token Optimizer skipped context injection because local hook processing failed.",
+        }),
+      );
+    }
     return 0;
   }
 }
@@ -1009,7 +1026,7 @@ function initHelpText(): string {
 
 function installHelpText(): string {
   return [
-    "Usage: agent-token-optimizer install [--hosts codex,claude-code] [--cache-path <path>] [--dry-run] [--json]",
+    "Usage: agent-token-optimizer install [--hosts codex,claude-code,kimi] [--cache-path <path>] [--dry-run] [--json]",
     "",
     "Installs a managed local UserPromptSubmit hook while preserving existing user hooks.",
   ].join("\n");
@@ -1017,14 +1034,14 @@ function installHelpText(): string {
 
 function uninstallHelpText(): string {
   return [
-    "Usage: agent-token-optimizer uninstall [--hosts codex,claude-code] [--cache-path <path>] [--dry-run] [--json]",
+    "Usage: agent-token-optimizer uninstall [--hosts codex,claude-code,kimi] [--cache-path <path>] [--dry-run] [--json]",
     "",
     "Removes only the managed Agent Token Optimizer hook entries.",
   ].join("\n");
 }
 
 function doctorHelpText(): string {
-  return "Usage: agent-token-optimizer doctor [--workspace <path>] [--hosts codex,claude-code] [--cache-path <path>] [--json]";
+  return "Usage: agent-token-optimizer doctor [--workspace <path>] [--hosts codex,claude-code,kimi] [--cache-path <path>] [--json]";
 }
 
 function mcpHelpText(): string {
@@ -1033,9 +1050,10 @@ function mcpHelpText(): string {
 
 function hookHelpText(): string {
   return [
-    "Usage: agent-token-optimizer hook user-prompt [--cache-path <path>] [--response-budget <tokens>] [--content-budget <tokens>]",
+    "Usage: agent-token-optimizer hook user-prompt [--host kimi] [--cache-path <path>] [--response-budget <tokens>] [--content-budget <tokens>]",
     "",
-    "Reads one Codex or Claude Code UserPromptSubmit event and emits bounded additional context.",
+    "Reads one Codex, Claude Code, or Kimi Code UserPromptSubmit event and emits bounded additional context.",
+    "With --host kimi the context is emitted as plain text because Kimi Code appends hook stdout to the turn context.",
   ].join("\n");
 }
 

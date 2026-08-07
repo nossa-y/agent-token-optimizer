@@ -1,5 +1,6 @@
 import { claudeAdapter } from "./adapters/claude";
 import { codexAdapter } from "./adapters/codex";
+import { kimiAdapter } from "./adapters/kimi";
 import { applyHostInstallPlan } from "./file-ops";
 import type {
   ApplyHostInstallPlanOptions,
@@ -13,7 +14,7 @@ import type {
   SupportedHost,
 } from "./types";
 
-const ADAPTERS: readonly HostAdapter[] = [claudeAdapter, codexAdapter];
+const ADAPTERS: readonly HostAdapter[] = [claudeAdapter, codexAdapter, kimiAdapter];
 
 export async function detectHostAdapters(
   context: HostDetectionContext,
@@ -60,7 +61,7 @@ export async function createHostInstallPlan(
 
   if (changes.length === 0) {
     warnings.push(
-      "No supported hosts were detected. Pass --hosts codex,claude-code to select hosts explicitly.",
+      "No supported hosts were detected. Pass --hosts codex,claude-code,kimi to select hosts explicitly.",
     );
   }
 
@@ -137,6 +138,9 @@ function normalizeRequestedHosts(
         return "claude-code";
       case "codex":
         return host;
+      case "kimi":
+      case "kimi-code":
+        return "kimi";
       default:
         throw new Error(`Unsupported host adapter: ${host}`);
     }

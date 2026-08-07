@@ -28,6 +28,7 @@ export const HostNameSchema = z.enum([
   "claude-code",
   "codex",
   "cursor",
+  "kimi",
   "windsurf",
   "unknown",
 ]);

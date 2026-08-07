@@ -200,6 +200,132 @@ export function inspectManagedHookJsonConfig(input: {
   }
 }
 
+export const MANAGED_TOML_BLOCK_BEGIN = "# >>> agent-token-optimizer managed hooks >>>";
+export const MANAGED_TOML_BLOCK_END = "# <<< agent-token-optimizer managed hooks <<<";
+
+export function createManagedHookTomlConfig(input: {
+  readonly existingContent?: string;
+  readonly command: readonly string[];
+}): string {
+  const block = renderManagedTomlBlock(input.command);
+  const withoutBlock = removeManagedTomlBlockText(input.existingContent ?? "");
+  const base = withoutBlock.trimEnd();
+
+  return base ? `${base}\n\n${block}\n` : `${block}\n`;
+}
+
+export function removeManagedHookTomlConfig(input: {
+  readonly existingContent?: string;
+}): string {
+  const existingContent = input.existingContent ?? "";
+
+  if (findManagedTomlBlockRange(existingContent) === undefined) {
+    return existingContent;
+  }
+
+  const withoutBlock = removeManagedTomlBlockText(existingContent);
+  const base = withoutBlock.trimEnd();
+
+  return base ? `${base}\n` : "";
+}
+
+export function inspectManagedHookTomlConfig(input: {
+  readonly existingContent?: string;
+  readonly command: readonly string[];
+}): "not-installed" | "installed" | "version-mismatch" | "invalid" {
+  try {
+    const existingContent = input.existingContent ?? "";
+    const range = findManagedTomlBlockRange(existingContent);
+
+    if (range === undefined) {
+      return "not-installed";
+    }
+
+    const block = existingContent.slice(range.begin, range.end);
+    return block === renderManagedTomlBlock(input.command)
+      ? "installed"
+      : "version-mismatch";
+  } catch {
+    return "invalid";
+  }
+}
+
+function renderManagedTomlBlock(command: readonly string[]): string {
+  return [
+    MANAGED_TOML_BLOCK_BEGIN,
+    "# Managed by Agent Token Optimizer. Do not edit this block; run install or uninstall instead.",
+    "[[hooks]]",
+    'event = "UserPromptSubmit"',
+    `command = ${encodeTomlBasicString(renderShellCommand(command))}`,
+    "timeout = 30",
+    MANAGED_TOML_BLOCK_END,
+  ].join("\n");
+}
+
+function findManagedTomlBlockRange(
+  content: string,
+): { readonly begin: number; readonly end: number } | undefined {
+  const beginCount = countOccurrences(content, MANAGED_TOML_BLOCK_BEGIN);
+  const endCount = countOccurrences(content, MANAGED_TOML_BLOCK_END);
+
+  if (beginCount === 0 && endCount === 0) {
+    return undefined;
+  }
+
+  const beginIndex = content.indexOf(MANAGED_TOML_BLOCK_BEGIN);
+  const endMarkerIndex = content.indexOf(MANAGED_TOML_BLOCK_END);
+
+  if (beginCount !== 1 || endCount !== 1 || endMarkerIndex < beginIndex) {
+    throw new Error("The managed hook block markers are malformed.");
+  }
+
+  return {
+    begin: beginIndex,
+    end: endMarkerIndex + MANAGED_TOML_BLOCK_END.length,
+  };
+}
+
+function removeManagedTomlBlockText(content: string): string {
+  const range = findManagedTomlBlockRange(content);
+
+  if (range === undefined) {
+    return content;
+  }
+
+  const before = content.slice(0, range.begin).replace(/\n+$/u, "");
+  const after = content.slice(range.end).replace(/^\n+/u, "");
+
+  if (!before) {
+    return after;
+  }
+
+  return after ? `${before}\n\n${after}` : `${before}\n`;
+}
+
+function countOccurrences(content: string, needle: string): number {
+  return content.split(needle).length - 1;
+}
+
+function encodeTomlBasicString(value: string): string {
+  let encoded = '"';
+
+  for (const character of value) {
+    const codePoint = character.codePointAt(0) ?? 0;
+
+    if (character === "\\") {
+      encoded += "\\\\";
+    } else if (character === '"') {
+      encoded += '\\"';
+    } else if (codePoint < 0x20 || codePoint === 0x7f) {
+      encoded += `\\u${codePoint.toString(16).padStart(4, "0")}`;
+    } else {
+      encoded += character;
+    }
+  }
+
+  return `${encoded}"`;
+}
+
 async function backupExistingFile(
   change: HostConfigChange,
   now: Date,

@@ -1,4 +1,4 @@
-export type SupportedHost = "claude-code" | "codex";
+export type SupportedHost = "claude-code" | "codex" | "kimi";
 export type HostConfigChangeAction = "create" | "update" | "unchanged";
 
 export interface HostDetectionContext {
