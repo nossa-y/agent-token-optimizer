@@ -86,10 +86,10 @@ pnpm ato uninstall --hosts codex,claude-code,kimi
 ```
 
 `cache list` prints record counts per kind, or record keys for one kind; it never prints
-cached values. `cache evict` removes the records attributed to one workspace and keeps
-records without workspace attribution, such as context packs and token ledgers.
-`cache clear` removes everything, and `cache repair` recreates the cache database in
-place.
+cached values. `cache evict` removes every record derived from one workspace - including
+its context packs, rankings, summaries, and token ledgers - in a single transaction, and
+leaves records for other workspaces untouched. `cache clear` removes everything, and
+`cache repair` recreates the cache database in place.
 
 Uninstall removes only the managed hook group. Every changed host file is backed up before
 modification.

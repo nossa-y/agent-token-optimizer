@@ -34,7 +34,7 @@ describe("SqliteStore", () => {
 
     await expect(store.health()).resolves.toMatchObject({
       ok: true,
-      migrationsApplied: [1],
+      migrationsApplied: [1, 2],
       records: 0,
     });
 
@@ -98,6 +98,94 @@ describe("SqliteStore", () => {
     await reopenedStore.close();
   });
 
+  it("evicts every record attributed to one workspace atomically with a single persist", async () => {
+    const databasePath = await createDatabasePath();
+    const store = new SqliteStore({ databasePath });
+    await store.initialize();
+
+    const workspaceIndex = createWorkspaceIndex();
+    const contextPack = createContextPack();
+    const tokenLedger = createTokenLedger();
+    const runMetric = createRunMetric(createTokenEstimate());
+
+    // Workspace A: a large, mixed set so the implementation cannot regress to
+    // per-record persistence and every workspace-derived kind is covered.
+    const workspaceA = "workspace-a-hash";
+    const attributionA = { workspaceRootHash: workspaceA };
+    const expectedByKind = {
+      [STORE_KINDS.workspaceIndex]: 40,
+      [STORE_KINDS.contextPack]: 8,
+      [STORE_KINDS.tokenLedger]: 6,
+    } as const;
+    for (let index = 0; index < expectedByKind[STORE_KINDS.workspaceIndex]; index += 1) {
+      await store.set(
+        STORE_KINDS.workspaceIndex,
+        `a:index:${index}`,
+        workspaceIndex,
+        attributionA,
+      );
+    }
+    for (let index = 0; index < expectedByKind[STORE_KINDS.contextPack]; index += 1) {
+      await store.set(
+        STORE_KINDS.contextPack,
+        `a:pack:${index}`,
+        contextPack,
+        attributionA,
+      );
+    }
+    for (let index = 0; index < expectedByKind[STORE_KINDS.tokenLedger]; index += 1) {
+      await store.set(
+        STORE_KINDS.tokenLedger,
+        `a:ledger:${index}`,
+        tokenLedger,
+        attributionA,
+      );
+    }
+
+    // Workspace B and a genuinely global record must survive.
+    await store.set(STORE_KINDS.workspaceIndex, "b:index", workspaceIndex, {
+      workspaceRootHash: "workspace-b-hash",
+    });
+    await store.set(STORE_KINDS.tokenLedger, "b:ledger", tokenLedger, {
+      workspaceRootHash: "workspace-b-hash",
+    });
+    await store.set(STORE_KINDS.runMetric, "global:run", runMetric);
+
+    const persistsBeforeEviction = store.persistCount;
+    const result = await store.deleteByWorkspace(workspaceA);
+
+    expect(result.workspaceRootHash).toBe(workspaceA);
+    expect(result.evicted).toBe(54);
+    expect(result.evictedByKind).toEqual(expectedByKind);
+    // One database rewrite for the whole logical set, not one per record.
+    expect(store.persistCount - persistsBeforeEviction).toBe(1);
+
+    // Nothing attributable to A remains.
+    await expect(store.list(STORE_KINDS.workspaceIndex)).resolves.toEqual([
+      expect.objectContaining({ key: "b:index" }),
+    ]);
+    await expect(store.list(STORE_KINDS.contextPack)).resolves.toEqual([]);
+    // B and the global record are untouched.
+    await expect(store.list(STORE_KINDS.tokenLedger)).resolves.toEqual([
+      expect.objectContaining({ key: "b:ledger" }),
+    ]);
+    await expect(store.list(STORE_KINDS.runMetric)).resolves.toEqual([
+      expect.objectContaining({ key: "global:run" }),
+    ]);
+
+    // Evicting a workspace with no records is a no-op and does not rewrite the file.
+    const persistsBeforeNoop = store.persistCount;
+    const emptyResult = await store.deleteByWorkspace("workspace-none");
+    expect(emptyResult).toEqual({
+      workspaceRootHash: "workspace-none",
+      evicted: 0,
+      evictedByKind: {},
+    });
+    expect(store.persistCount).toBe(persistsBeforeNoop);
+
+    await store.close();
+  });
+
   it("surfaces corruption and can repair the local cache file", async () => {
     const databasePath = await createDatabasePath();
     await writeFile(databasePath, "not a sqlite database");
@@ -108,7 +196,7 @@ describe("SqliteStore", () => {
     await store.repair();
     await expect(store.health()).resolves.toMatchObject({
       ok: true,
-      migrationsApplied: [1],
+      migrationsApplied: [1, 2],
       records: 0,
     });
     await store.close();

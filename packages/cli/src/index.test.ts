@@ -4,7 +4,11 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { STORE_KINDS, SqliteStore } from "@agent-relay/agent-token-optimization-core";
+import {
+  getWorkspaceIdentity,
+  STORE_KINDS,
+  SqliteStore,
+} from "@agent-relay/agent-token-optimization-core";
 
 import { runCli, type CliIo } from "./index";
 
@@ -546,12 +550,13 @@ describe("agent-token-optimizer CLI", () => {
     expect(detailResult.records[0]?.key.endsWith(":latest")).toBe(true);
   });
 
-  it("evicts only the requested workspace's attributable cache records", async () => {
+  it("evicts every record derived from the requested workspace and preserves others", async () => {
     const workspaceA = await createTemporaryWorkspace();
     const workspaceB = await createTemporaryWorkspace();
     const cachePath = path.join(await createTemporaryWorkspace(), "evict.sqlite");
     await seedHookCache(workspaceA, cachePath);
     await seedHookCache(workspaceB, cachePath);
+    const workspaceAHash = (await getWorkspaceIdentity(workspaceA)).rootHash;
 
     const optimizeOutput = createOutput();
     const optimizeExitCode = await runCli(
@@ -584,22 +589,34 @@ describe("agent-token-optimizer CLI", () => {
       readonly evicted: number;
       readonly evictedByKind: Readonly<Record<string, number>>;
     };
-    expect(evictResult.evicted).toBeGreaterThanOrEqual(4);
+    // Workspace A's context pack, ranking, token ledger, and workspace records
+    // are all removed - not just the ones that carried an inline hash.
     expect(evictResult.evictedByKind[STORE_KINDS.workspaceIndex]).toBe(1);
-    expect(evictResult.evictedByKind[STORE_KINDS.contextRanking]).toBe(2);
+    expect(evictResult.evictedByKind[STORE_KINDS.workspaceAnalysis]).toBe(1);
     expect(evictResult.evictedByKind[STORE_KINDS.userPromptHookEvidence]).toBe(1);
+    expect(evictResult.evictedByKind[STORE_KINDS.tokenLedger]).toBe(1);
+    expect(evictResult.evictedByKind[STORE_KINDS.contextPack]).toBe(1);
+    expect(evictResult.evictedByKind[STORE_KINDS.contextRanking]).toBe(2);
 
     const store = new SqliteStore({ databasePath: cachePath });
     await store.initialize();
     try {
-      // The other workspace's records are preserved.
+      // No record attributable to workspace A survives, across every kind.
+      const survivors = (
+        await Promise.all(Object.values(STORE_KINDS).map((kind) => store.list(kind)))
+      ).flat();
+      expect(
+        survivors.filter((record) => record.workspaceRootHash === workspaceAHash),
+      ).toEqual([]);
+      // Workspace A's context pack and ranking are gone entirely.
+      await expect(store.list(STORE_KINDS.contextPack)).resolves.toEqual([]);
+      await expect(store.list(STORE_KINDS.contextRanking)).resolves.toEqual([]);
+      // Workspace B's records remain intact.
       await expect(store.list(STORE_KINDS.workspaceIndex)).resolves.toHaveLength(1);
       await expect(store.list(STORE_KINDS.userPromptHookEvidence)).resolves.toHaveLength(
         1,
       );
-      // Records without workspace attribution are intentionally kept.
-      await expect(store.list(STORE_KINDS.contextPack)).resolves.toHaveLength(1);
-      await expect(store.list(STORE_KINDS.tokenLedger)).resolves.toHaveLength(2);
+      await expect(store.list(STORE_KINDS.tokenLedger)).resolves.toHaveLength(1);
     } finally {
       await store.close();
     }

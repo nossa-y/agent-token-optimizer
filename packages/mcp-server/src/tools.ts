@@ -860,43 +860,53 @@ async function persistContextPack(input: {
     return false;
   }
 
+  const workspaceRootHash = input.workspaceIndex.workspace.rootHash;
+  const workspaceAttribution = { workspaceRootHash };
   await withStore(input.cachePath, async (store) => {
     await store.set(
       STORE_KINDS.workspaceIndex,
-      `${input.workspaceIndex.workspace.rootHash}:latest`,
+      `${workspaceRootHash}:latest`,
       input.workspaceIndex,
+      workspaceAttribution,
     );
     await store.set(
       STORE_KINDS.workspaceAnalysis,
-      `${input.workspaceIndex.workspace.rootHash}:latest`,
+      `${workspaceRootHash}:latest`,
       input.workspaceAnalysis,
+      workspaceAttribution,
     );
     await store.set(
       STORE_KINDS.contextPack,
       input.contextPack.packId ?? input.contextPack.metadata.operationId ?? randomUUID(),
       input.contextPack,
+      workspaceAttribution,
     );
     await store.set(
       STORE_KINDS.contextRanking,
       input.rankingEvidence.packId,
       input.rankingEvidence,
+      workspaceAttribution,
     );
     await store.set(
       STORE_KINDS.contextRanking,
       input.rankingCacheKey,
       input.rankingEvidence,
+      workspaceAttribution,
     );
     for (const summary of input.contextPack.summaries) {
       await store.set(
         STORE_KINDS.fileSummary,
         createSummaryCacheKey(
-          input.workspaceIndex.workspace.rootHash,
+          workspaceRootHash,
           input.task,
           input.summaryMaxChars,
           summary.path,
         ),
         summary,
-        summary.contentHash ? { contentHash: summary.contentHash } : undefined,
+        {
+          workspaceRootHash,
+          ...(summary.contentHash ? { contentHash: summary.contentHash } : {}),
+        },
       );
     }
 
@@ -905,6 +915,7 @@ async function persistContextPack(input: {
         STORE_KINDS.tokenEstimate,
         input.contextPack.metadata.operationId ?? randomUUID(),
         input.contextPack.tokenEstimate,
+        workspaceAttribution,
       );
     }
   });

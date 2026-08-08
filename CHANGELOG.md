@@ -13,7 +13,9 @@ All notable user-visible changes are recorded here.
   turn context.
 - `cache list` and `cache evict --workspace <path>` commands for cache inspection and
   selective workspace eviction. `cache list` prints record counts and keys only, never
-  cached values; `cache evict` keeps records without workspace attribution.
+  cached values. Cache records now carry durable workspace attribution, so `cache evict`
+  removes every record derived from one workspace - context packs, rankings, summaries,
+  and token ledgers included - in a single transaction while preserving other workspaces.
 - Deterministic local `UserPromptSubmit` context hook shared by Codex and Claude Code.
 - Local `install`, `doctor`, and `uninstall` lifecycle with dry-run, backups, idempotency,
   drift detection, and preservation of user hooks.

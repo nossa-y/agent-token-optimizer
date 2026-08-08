@@ -610,17 +610,21 @@ async function optimizeCommand(
       rankedContext,
       workspaceIndex,
     });
+    const workspaceRootHash = workspaceIndex.workspace.rootHash;
+    const workspaceAttribution = { workspaceRootHash };
     await withStore(cachePath, async (store) => {
       await store.set(
         STORE_KINDS.workspaceIndex,
-        `${workspaceIndex.workspace.rootHash}:latest`,
+        `${workspaceRootHash}:latest`,
         workspaceIndex,
+        workspaceAttribution,
       );
       if (workspaceAnalysis) {
         await store.set(
           STORE_KINDS.workspaceAnalysis,
-          `${workspaceIndex.workspace.rootHash}:latest`,
+          `${workspaceRootHash}:latest`,
           workspaceAnalysis,
+          workspaceAttribution,
         );
       }
       await store.set(
@@ -629,24 +633,26 @@ async function optimizeCommand(
           contextPack.metadata.operationId ??
           `context-pack:${Date.now()}`,
         contextPack,
+        workspaceAttribution,
       );
       await store.set(
         STORE_KINDS.contextRanking,
         rankingEvidence.packId,
         rankingEvidence,
+        workspaceAttribution,
       );
-      await store.set(STORE_KINDS.contextRanking, rankingCacheKey, rankingEvidence);
+      await store.set(STORE_KINDS.contextRanking, rankingCacheKey, rankingEvidence, {
+        workspaceRootHash,
+      });
       for (const summary of contextPack.summaries) {
         await store.set(
           STORE_KINDS.fileSummary,
-          createSummaryCacheKey(
-            workspaceIndex.workspace.rootHash,
-            task,
-            summaryMaxChars,
-            summary.path,
-          ),
+          createSummaryCacheKey(workspaceRootHash, task, summaryMaxChars, summary.path),
           summary,
-          summary.contentHash ? { contentHash: summary.contentHash } : undefined,
+          {
+            workspaceRootHash,
+            ...(summary.contentHash ? { contentHash: summary.contentHash } : {}),
+          },
         );
       }
     });
@@ -742,21 +748,7 @@ async function cacheCommand(
       );
 
       return await withStore(cachePath, async (store) => {
-        const evictedByKind: Record<string, number> = {};
-        let evicted = 0;
-
-        for (const storeKind of Object.values(STORE_KINDS)) {
-          for (const record of await store.list(storeKind)) {
-            if (!cacheRecordMatchesWorkspace(record, workspace.rootHash)) {
-              continue;
-            }
-
-            if (await store.delete(storeKind, record.key)) {
-              evicted += 1;
-              evictedByKind[storeKind] = (evictedByKind[storeKind] ?? 0) + 1;
-            }
-          }
-        }
+        const result = await store.deleteByWorkspace(workspace.rootHash);
 
         return writeOutput(
           environment,
@@ -765,15 +757,14 @@ async function cacheCommand(
             cachePath,
             workspaceRoot: workspace.rootPath,
             workspaceRootHash: workspace.rootHash,
-            evicted,
-            evictedByKind,
+            evicted: result.evicted,
+            evictedByKind: result.evictedByKind,
           },
           [
-            `Evicted ${evicted} cache records for workspace ${workspace.rootPath}.`,
-            ...Object.entries(evictedByKind).map(
+            `Evicted ${result.evicted} cache records for workspace ${workspace.rootPath}.`,
+            ...Object.entries(result.evictedByKind).map(
               ([entryKind, count]) => `- ${entryKind}: ${count}`,
             ),
-            "Records without workspace attribution (for example context packs and token ledgers) are kept; use `cache clear` to remove everything.",
           ],
         );
       });
@@ -1039,26 +1030,6 @@ function parseStoreKind(value: string | undefined): StoreRecordKind | undefined 
   }
 
   throw new Error(`Unknown cache record kind: ${value}`);
-}
-
-function cacheRecordMatchesWorkspace(
-  record: { readonly key: string; readonly value: unknown },
-  workspaceRootHash: string,
-): boolean {
-  if (
-    record.key.startsWith(`${workspaceRootHash}:`) ||
-    record.key.includes(`:${workspaceRootHash}:`)
-  ) {
-    return true;
-  }
-
-  if (typeof record.value !== "object" || record.value === null) {
-    return false;
-  }
-
-  const value = record.value as { readonly workspaceRootHash?: unknown };
-
-  return value.workspaceRootHash === workspaceRootHash;
 }
 
 function numberFlag(args: ParsedArgs, name: string): number | undefined {
