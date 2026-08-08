@@ -203,30 +203,38 @@ export function inspectManagedHookJsonConfig(input: {
 export const MANAGED_TOML_BLOCK_BEGIN = "# >>> agent-token-optimizer managed hooks >>>";
 export const MANAGED_TOML_BLOCK_END = "# <<< agent-token-optimizer managed hooks <<<";
 
+// The managed region is a byte span the installer owns end to end: the begin
+// and end markers are recognized only as exact standalone lines, the block
+// carries no trailing newline, and install prepends a single "\n" separator
+// when appending after existing content. Uninstall removes exactly that span
+// (block plus the one separator), so install -> uninstall restores the original
+// bytes verbatim. Nothing outside the owned span is trimmed or rewritten.
+
 export function createManagedHookTomlConfig(input: {
   readonly existingContent?: string;
   readonly command: readonly string[];
 }): string {
   const block = renderManagedTomlBlock(input.command);
-  const withoutBlock = removeManagedTomlBlockText(input.existingContent ?? "");
-  const base = withoutBlock.trimEnd();
+  const base = removeManagedHookTomlConfig({
+    ...(input.existingContent !== undefined
+      ? { existingContent: input.existingContent }
+      : {}),
+  });
 
-  return base ? `${base}\n\n${block}\n` : `${block}\n`;
+  return base === "" ? block : `${base}\n${block}`;
 }
 
 export function removeManagedHookTomlConfig(input: {
   readonly existingContent?: string;
 }): string {
   const existingContent = input.existingContent ?? "";
+  const span = locateManagedTomlBlock(existingContent);
 
-  if (findManagedTomlBlockRange(existingContent) === undefined) {
+  if (span === undefined) {
     return existingContent;
   }
 
-  const withoutBlock = removeManagedTomlBlockText(existingContent);
-  const base = withoutBlock.trimEnd();
-
-  return base ? `${base}\n` : "";
+  return existingContent.slice(0, span.ownedStart) + existingContent.slice(span.end);
 }
 
 export function inspectManagedHookTomlConfig(input: {
@@ -235,13 +243,13 @@ export function inspectManagedHookTomlConfig(input: {
 }): "not-installed" | "installed" | "version-mismatch" | "invalid" {
   try {
     const existingContent = input.existingContent ?? "";
-    const range = findManagedTomlBlockRange(existingContent);
+    const span = locateManagedTomlBlock(existingContent);
 
-    if (range === undefined) {
+    if (span === undefined) {
       return "not-installed";
     }
 
-    const block = existingContent.slice(range.begin, range.end);
+    const block = existingContent.slice(span.blockStart, span.end);
     return block === renderManagedTomlBlock(input.command)
       ? "installed"
       : "version-mismatch";
@@ -262,48 +270,76 @@ function renderManagedTomlBlock(command: readonly string[]): string {
   ].join("\n");
 }
 
-function findManagedTomlBlockRange(
-  content: string,
-): { readonly begin: number; readonly end: number } | undefined {
-  const beginCount = countOccurrences(content, MANAGED_TOML_BLOCK_BEGIN);
-  const endCount = countOccurrences(content, MANAGED_TOML_BLOCK_END);
+interface ManagedTomlSpan {
+  /** Byte offset of the first character of the begin marker line. */
+  readonly blockStart: number;
+  /** Byte offset just past the end marker text (before any trailing newline). */
+  readonly end: number;
+  /** Byte offset of the owned span, including one leading "\n" separator if present. */
+  readonly ownedStart: number;
+}
 
-  if (beginCount === 0 && endCount === 0) {
+function locateManagedTomlBlock(content: string): ManagedTomlSpan | undefined {
+  const begins = findStandaloneMarkers(content, MANAGED_TOML_BLOCK_BEGIN);
+  const ends = findStandaloneMarkers(content, MANAGED_TOML_BLOCK_END);
+
+  if (begins.length === 0 && ends.length === 0) {
     return undefined;
   }
 
-  const beginIndex = content.indexOf(MANAGED_TOML_BLOCK_BEGIN);
-  const endMarkerIndex = content.indexOf(MANAGED_TOML_BLOCK_END);
+  const begin = begins[0];
+  const end = ends[0];
 
-  if (beginCount !== 1 || endCount !== 1 || endMarkerIndex < beginIndex) {
+  if (begins.length !== 1 || ends.length !== 1 || begin === undefined) {
     throw new Error("The managed hook block markers are malformed.");
   }
 
-  return {
-    begin: beginIndex,
-    end: endMarkerIndex + MANAGED_TOML_BLOCK_END.length,
-  };
-}
-
-function removeManagedTomlBlockText(content: string): string {
-  const range = findManagedTomlBlockRange(content);
-
-  if (range === undefined) {
-    return content;
+  if (end === undefined || end.start < begin.start) {
+    throw new Error("The managed hook block markers are misordered.");
   }
 
-  const before = content.slice(0, range.begin).replace(/\n+$/u, "");
-  const after = content.slice(range.end).replace(/^\n+/u, "");
+  const ownedStart =
+    begin.start > 0 && content[begin.start - 1] === "\n" ? begin.start - 1 : begin.start;
 
-  if (!before) {
-    return after;
-  }
-
-  return after ? `${before}\n\n${after}` : `${before}\n`;
+  return { blockStart: begin.start, end: end.textEnd, ownedStart };
 }
 
-function countOccurrences(content: string, needle: string): number {
-  return content.split(needle).length - 1;
+/**
+ * Finds every occurrence of `marker` that is a standalone line: it begins the
+ * file or follows a newline, and it ends the file or is followed by a newline
+ * (optionally a CRLF). Marker text embedded in a TOML string or trailed by
+ * other characters is deliberately not matched.
+ */
+function findStandaloneMarkers(
+  content: string,
+  marker: string,
+): { readonly start: number; readonly textEnd: number }[] {
+  const matches: { readonly start: number; readonly textEnd: number }[] = [];
+  let searchFrom = 0;
+
+  for (;;) {
+    const start = content.indexOf(marker, searchFrom);
+
+    if (start === -1) {
+      break;
+    }
+
+    const textEnd = start + marker.length;
+    const atLineStart = start === 0 || content[start - 1] === "\n";
+    const nextChar = content[textEnd];
+    const atLineEnd =
+      nextChar === undefined ||
+      nextChar === "\n" ||
+      (nextChar === "\r" && content[textEnd + 1] === "\n");
+
+    if (atLineStart && atLineEnd) {
+      matches.push({ start, textEnd });
+    }
+
+    searchFrom = textEnd;
+  }
+
+  return matches;
 }
 
 function encodeTomlBasicString(value: string): string {

@@ -21,7 +21,7 @@ export const kimiAdapter: HostAdapter = {
   displayName: "Kimi Code",
   async detect(context) {
     const configPath = kimiConfigPath(context);
-    const detected = await pathExists(path.join(context.homePath, ".kimi-code")).then(
+    const detected = await pathExists(kimiDataRoot(context)).then(
       async (directoryExists) => directoryExists || (await pathExists(configPath)),
     );
 
@@ -70,8 +70,20 @@ export const kimiAdapter: HostAdapter = {
   },
 };
 
+/**
+ * Kimi Code stores all runtime data under `KIMI_CODE_HOME` when it is set, and
+ * under `<home>/.kimi-code` otherwise. Honoring the override keeps install,
+ * detection, doctor, and uninstall pointed at the file Kimi actually loads.
+ * See https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/configuration/data-locations.md
+ */
+function kimiDataRoot(context: HostDetectionContext): string {
+  const override = context.env?.KIMI_CODE_HOME?.trim();
+
+  return override ? path.resolve(override) : path.join(context.homePath, ".kimi-code");
+}
+
 function kimiConfigPath(context: HostDetectionContext): string {
-  return path.join(context.homePath, ".kimi-code", "config.toml");
+  return path.join(kimiDataRoot(context), "config.toml");
 }
 
 function kimiHookCommand(context: HostInstallContext): readonly string[] {

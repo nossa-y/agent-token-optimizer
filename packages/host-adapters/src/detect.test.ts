@@ -298,6 +298,59 @@ describe("host adapters", () => {
     ]);
   });
 
+  it("targets KIMI_CODE_HOME for install, detection, and uninstall when set", async () => {
+    const { homePath, workspaceRoot } = await createFixture();
+    const kimiCodeHome = path.join(homePath, "custom-kimi-data");
+    const overridePath = path.join(kimiCodeHome, "config.toml");
+    const defaultPath = path.join(homePath, ".kimi-code", "config.toml");
+    const context = {
+      homePath,
+      workspaceRoot,
+      hookCommand,
+      requestedHosts: ["kimi"] as const,
+      env: { KIMI_CODE_HOME: kimiCodeHome },
+    };
+
+    const plan = await createHostInstallPlan(context);
+    expect(plan.changes.map((change) => change.path)).toEqual([overridePath]);
+
+    await applyDetectedHostInstallPlan(plan);
+    // The override file Kimi actually loads is written; the default path is not.
+    await expect(readFile(overridePath, "utf8")).resolves.toContain(MANAGED_HOOK_MARKER);
+    await expect(readFile(defaultPath, "utf8")).rejects.toThrow();
+
+    await expect(inspectHostAdapters(context)).resolves.toEqual([
+      expect.objectContaining({
+        host: "kimi",
+        configPath: overridePath,
+        status: "installed",
+      }),
+    ]);
+
+    const uninstallResult = await applyDetectedHostInstallPlan(
+      await createHostUninstallPlan(context),
+    );
+    expect(uninstallResult.applied.map((change) => change.path)).toEqual([overridePath]);
+    await expect(readFile(overridePath, "utf8")).resolves.not.toContain(
+      MANAGED_HOOK_MARKER,
+    );
+  });
+
+  it("falls back to <home>/.kimi-code when KIMI_CODE_HOME is unset or blank", async () => {
+    const { homePath, workspaceRoot } = await createFixture();
+    const defaultPath = path.join(homePath, ".kimi-code", "config.toml");
+    const context = {
+      homePath,
+      workspaceRoot,
+      hookCommand,
+      requestedHosts: ["kimi"] as const,
+      env: { KIMI_CODE_HOME: "   " },
+    };
+
+    const plan = await createHostInstallPlan(context);
+    expect(plan.changes.map((change) => change.path)).toEqual([defaultPath]);
+  });
+
   it("parses supported aliases and rejects deferred hosts", () => {
     expect(parseSupportedHosts("claude,codex")).toEqual(["claude-code", "codex"]);
     expect(parseSupportedHosts("kimi-code,kimi")).toEqual(["kimi"]);

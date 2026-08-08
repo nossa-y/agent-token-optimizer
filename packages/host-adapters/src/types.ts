@@ -5,6 +5,11 @@ export interface HostDetectionContext {
   readonly homePath: string;
   readonly workspaceRoot: string;
   readonly requestedHosts?: readonly SupportedHost[];
+  /**
+   * Process environment used to resolve host-specific data roots (for example
+   * Kimi Code's `KIMI_CODE_HOME`). Falls back to `homePath` defaults when absent.
+   */
+  readonly env?: Readonly<Record<string, string | undefined>>;
 }
 
 export interface HostInstallContext extends HostDetectionContext {

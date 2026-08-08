@@ -51,7 +51,9 @@ The installer merges one managed hook without replacing existing hooks:
 
 For Codex and Claude Code the hook is merged into the host's JSON configuration. For Kimi
 Code the installer manages one clearly marked TOML block and never rewrites content
-outside its markers.
+outside its markers. When `KIMI_CODE_HOME` is set, the Kimi config is read from and
+written to `$KIMI_CODE_HOME/config.toml` instead of the default above, matching where Kimi
+Code loads it.
 
 Review the generated command before approving hook execution. Codex applies its normal
 hook trust review. Host hook behavior is documented by

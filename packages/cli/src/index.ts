@@ -237,6 +237,7 @@ async function installCommand(
     homePath: resolveHomePath(environment),
     workspaceRoot,
     hookCommand: createManagedHookCommand(args, environment),
+    env: environment.env,
     ...(requestedHosts ? { requestedHosts } : {}),
   };
   const plan = await createHostInstallPlan(context);
@@ -297,6 +298,7 @@ async function uninstallCommand(
     homePath: resolveHomePath(environment),
     workspaceRoot,
     hookCommand: createManagedHookCommand(args, environment),
+    env: environment.env,
     ...(requestedHosts ? { requestedHosts } : {}),
   };
   const plan = await createHostUninstallPlan(context);

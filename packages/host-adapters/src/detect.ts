@@ -39,6 +39,7 @@ export async function createHostInstallPlan(
     homePath: context.homePath,
     workspaceRoot: context.workspaceRoot,
     ...(requestedHosts ? { requestedHosts } : {}),
+    ...(context.env ? { env: context.env } : {}),
   });
   const adaptersByHost = new Map(ADAPTERS.map((adapter) => [adapter.host, adapter]));
   const changes = [];
@@ -86,6 +87,7 @@ export async function inspectHostAdapters(
     homePath: context.homePath,
     workspaceRoot: context.workspaceRoot,
     ...(requestedHosts ? { requestedHosts } : {}),
+    ...(context.env ? { env: context.env } : {}),
   });
   const adaptersByHost = new Map(ADAPTERS.map((adapter) => [adapter.host, adapter]));
 
@@ -158,6 +160,7 @@ async function createHostChangePlan(
     homePath: context.homePath,
     workspaceRoot: context.workspaceRoot,
     ...(requestedHosts ? { requestedHosts } : {}),
+    ...(context.env ? { env: context.env } : {}),
   });
   const adaptersByHost = new Map(ADAPTERS.map((adapter) => [adapter.host, adapter]));
   const changes = [];

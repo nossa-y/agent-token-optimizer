@@ -7,7 +7,8 @@ All notable user-visible changes are recorded here.
 ### Added
 
 - Kimi Code host support: the managed `UserPromptSubmit` hook is installed as one marked
-  TOML block in `~/.kimi-code/config.toml`, the hook accepts content-part prompt arrays,
+  TOML block that is spliced in and out without altering surrounding bytes, honoring
+  `KIMI_CODE_HOME` for the config location. The hook accepts content-part prompt arrays,
   and `--host kimi` emits plain-text context because Kimi Code appends hook stdout to the
   turn context.
 - Deterministic local `UserPromptSubmit` context hook shared by Codex and Claude Code.
