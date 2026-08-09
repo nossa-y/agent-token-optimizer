@@ -6,7 +6,7 @@ agent's first repository exploration.
 ## Runtime Flow
 
 ```text
-Codex / Claude Code
+Codex / Claude Code / Kimi Code
         |
         | UserPromptSubmit JSON (prompt + active cwd)
         v
@@ -37,9 +37,10 @@ estimation, and SQLite persistence.
 `packages/cli` composes the hook workflow and exposes lifecycle, diagnostics, manual
 optimization, cache, and advanced MCP commands.
 
-`packages/host-adapters` owns host detection and JSON merging. It writes one marked hook
-group to Codex `hooks.json` or Claude Code `settings.json`. It does not install skills or
-MCP configuration.
+`packages/host-adapters` owns host detection and config merging. It writes one marked hook
+group to Codex `hooks.json` or Claude Code `settings.json`, and one marked TOML block to
+Kimi Code `config.toml` without rewriting content outside its markers. It does not install
+skills or MCP configuration.
 
 `packages/mcp-server` exposes advanced local tools. Each server is bound at startup to a
 canonical workspace and cache. Request arguments cannot widen either boundary. This

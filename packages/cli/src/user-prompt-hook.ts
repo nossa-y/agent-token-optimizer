@@ -82,7 +82,7 @@ export function parseUserPromptHookInput(serialized: string): UserPromptHookInpu
   }
 
   const cwd = readBoundedString(record.cwd, "cwd", 4_096);
-  const prompt = readBoundedString(record.prompt, "prompt", 20_000).trim();
+  const prompt = readPromptText(record.prompt).trim();
 
   if (!prompt) {
     throw new TypeError("User-prompt hook prompt must not be empty.");
@@ -479,6 +479,36 @@ function assertTimeLimit(value: number): void {
       "User-prompt hook time limit must be between 1 and 30000 milliseconds.",
     );
   }
+}
+
+const MAX_PROMPT_LENGTH = 20_000;
+
+function readPromptText(value: unknown): string {
+  if (typeof value === "string") {
+    return readBoundedString(value, "prompt", MAX_PROMPT_LENGTH);
+  }
+
+  if (Array.isArray(value)) {
+    const textParts: string[] = [];
+
+    for (const part of value) {
+      if (typeof part !== "object" || part === null || Array.isArray(part)) {
+        continue;
+      }
+
+      const record = part as Record<string, unknown>;
+
+      if (record.type === "text" && typeof record.text === "string") {
+        textParts.push(record.text);
+      }
+    }
+
+    return readBoundedString(textParts.join("\n"), "prompt", MAX_PROMPT_LENGTH);
+  }
+
+  throw new TypeError(
+    "User-prompt hook prompt must be a string or an array of content parts.",
+  );
 }
 
 function readBoundedString(value: unknown, name: string, maxLength: number): string {

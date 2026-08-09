@@ -99,6 +99,111 @@ describe("agent-token-optimizer CLI", () => {
     }
   });
 
+  it("runs the Kimi user-prompt hook and emits plain text context", async () => {
+    const workspaceRoot = await createTemporaryWorkspace();
+    const cachePath = path.join(workspaceRoot, ".cache", "kimi-hook.sqlite");
+    await mkdir(path.join(workspaceRoot, "src"));
+    await writeFile(
+      path.join(workspaceRoot, "src", "session.ts"),
+      "export function validateSession() { return false; }\n",
+    );
+    const output = createOutput();
+    const exitCode = await runCli(
+      ["hook", "user-prompt", "--host", "kimi", "--cache-path", cachePath],
+      {
+        cwd: workspaceRoot,
+        io: output.io,
+        readStdin: () =>
+          Promise.resolve(
+            JSON.stringify({
+              hook_event_name: "UserPromptSubmit",
+              session_id: "session_abc",
+              client_type: "kimi_code_cli",
+              cwd: workspaceRoot,
+              prompt: [
+                {
+                  type: "text",
+                  text: "Fix authentication session validation in src/session.ts",
+                },
+              ],
+            }),
+          ),
+      },
+    );
+
+    expect(exitCode).toBe(0);
+    expect(output.stderr).toEqual([]);
+    expect(output.stdout).toHaveLength(1);
+    expect(output.stdout[0]?.startsWith("# Agent Token Optimizer Context")).toBe(true);
+    expect(output.stdout[0]).toContain("src/session.ts");
+    expect(output.stdout[0]).not.toContain("hookSpecificOutput");
+  });
+
+  it("keeps Kimi hook failures silent to avoid polluting appended context", async () => {
+    const output = createOutput();
+    const exitCode = await runCli(["hook", "user-prompt", "--host", "kimi"], {
+      cwd: await createTemporaryWorkspace(),
+      io: output.io,
+      readStdin: () => Promise.resolve("not-json"),
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output.stdout).toEqual([]);
+  });
+
+  it("installs and uninstalls the Kimi managed hook block", async () => {
+    const fixture = await createCliFixture();
+    const kimiConfigPath = path.join(fixture.homePath, ".kimi-code", "config.toml");
+    const installArgs = [
+      "install",
+      "--hosts",
+      "kimi",
+      "--cache-path",
+      fixture.cachePath,
+      "--json",
+    ];
+    const installOutput = createOutput();
+    const installExitCode = await runCli(installArgs, {
+      cwd: fixture.workspaceRoot,
+      env: { HOME: fixture.homePath },
+      io: installOutput.io,
+    });
+
+    expect(installExitCode).toBe(0);
+    expect(JSON.parse(installOutput.stdout[0] ?? "{}")).toEqual(
+      expect.objectContaining({ status: "installed" }),
+    );
+    const installedContent = await readFile(kimiConfigPath, "utf8");
+    expect(installedContent).toContain("agent-token-optimizer-managed-hook");
+    expect(installedContent).toContain('event = "UserPromptSubmit"');
+    expect(installedContent).toContain("--host");
+
+    const repeatedOutput = createOutput();
+    const repeatedExitCode = await runCli(installArgs, {
+      cwd: fixture.workspaceRoot,
+      env: { HOME: fixture.homePath },
+      io: repeatedOutput.io,
+    });
+    expect(repeatedExitCode).toBe(0);
+    expect(JSON.parse(repeatedOutput.stdout[0] ?? "{}")).toEqual(
+      expect.objectContaining({ status: "unchanged" }),
+    );
+
+    const uninstallOutput = createOutput();
+    const uninstallExitCode = await runCli(
+      ["uninstall", "--hosts", "kimi", "--cache-path", fixture.cachePath, "--json"],
+      {
+        cwd: fixture.workspaceRoot,
+        env: { HOME: fixture.homePath },
+        io: uninstallOutput.io,
+      },
+    );
+    expect(uninstallExitCode).toBe(0);
+    await expect(readFile(kimiConfigPath, "utf8")).resolves.not.toContain(
+      "agent-token-optimizer-managed-hook",
+    );
+  });
+
   it("initializes workspace config and cache", async () => {
     const workspaceRoot = await createTemporaryWorkspace();
     const cachePath = path.join(workspaceRoot, ".cache", "ato.sqlite");

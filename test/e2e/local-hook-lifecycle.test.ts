@@ -15,7 +15,7 @@ describe("local hook lifecycle", () => {
     );
   });
 
-  it("installs, diagnoses, runs, and uninstalls both supported host hooks", async () => {
+  it("installs, diagnoses, runs, and uninstalls all supported host hooks", async () => {
     const rootPath = await mkdtemp(path.join(os.tmpdir(), "ato-e2e-"));
     temporaryRoots.push(rootPath);
     const homePath = path.join(rootPath, "home");
@@ -35,7 +35,14 @@ describe("local hook lifecycle", () => {
 
     await expect(
       runCli(
-        ["install", "--hosts", "codex,claude-code", "--cache-path", cachePath, "--json"],
+        [
+          "install",
+          "--hosts",
+          "codex,claude-code,kimi",
+          "--cache-path",
+          cachePath,
+          "--json",
+        ],
         { ...environment, io: installOutput.io },
       ),
     ).resolves.toBe(0);
@@ -48,11 +55,21 @@ describe("local hook lifecycle", () => {
     await expect(
       readFile(path.join(homePath, ".claude", "settings.json"), "utf8"),
     ).resolves.toContain("user-prompt");
+    await expect(
+      readFile(path.join(homePath, ".kimi-code", "config.toml"), "utf8"),
+    ).resolves.toContain("user-prompt");
 
     const doctorOutput = createOutput();
     await expect(
       runCli(
-        ["doctor", "--hosts", "codex,claude-code", "--cache-path", cachePath, "--json"],
+        [
+          "doctor",
+          "--hosts",
+          "codex,claude-code,kimi",
+          "--cache-path",
+          cachePath,
+          "--json",
+        ],
         { ...environment, io: doctorOutput.io },
       ),
     ).resolves.toBe(0);
@@ -62,6 +79,7 @@ describe("local hook lifecycle", () => {
         hosts: expect.arrayContaining([
           expect.objectContaining({ host: "codex", status: "installed" }),
           expect.objectContaining({ host: "claude-code", status: "installed" }),
+          expect.objectContaining({ host: "kimi", status: "installed" }),
         ]),
       }),
     );
@@ -90,13 +108,37 @@ describe("local hook lifecycle", () => {
       }),
     );
 
+    const kimiHookOutput = createOutput();
+    await expect(
+      runCli(["hook", "user-prompt", "--host", "kimi", "--cache-path", cachePath], {
+        ...environment,
+        io: kimiHookOutput.io,
+        readStdin: () =>
+          Promise.resolve(
+            JSON.stringify({
+              hook_event_name: "UserPromptSubmit",
+              session_id: "session_e2e",
+              client_type: "kimi_code_cli",
+              cwd: workspaceRoot,
+              prompt: [
+                { type: "text", text: "Fix session validation in src/session.ts" },
+              ],
+            }),
+          ),
+      }),
+    ).resolves.toBe(0);
+    expect(kimiHookOutput.stdout[0]?.startsWith("# Agent Token Optimizer Context")).toBe(
+      true,
+    );
+    expect(kimiHookOutput.stdout[0]).toContain("src/session.ts");
+
     const uninstallOutput = createOutput();
     await expect(
       runCli(
         [
           "uninstall",
           "--hosts",
-          "codex,claude-code",
+          "codex,claude-code,kimi",
           "--cache-path",
           cachePath,
           "--json",
@@ -112,6 +154,9 @@ describe("local hook lifecycle", () => {
     ).resolves.not.toContain("agent-token-optimizer-managed-hook");
     await expect(
       readFile(path.join(homePath, ".claude", "settings.json"), "utf8"),
+    ).resolves.not.toContain("agent-token-optimizer-managed-hook");
+    await expect(
+      readFile(path.join(homePath, ".kimi-code", "config.toml"), "utf8"),
     ).resolves.not.toContain("agent-token-optimizer-managed-hook");
   });
 });

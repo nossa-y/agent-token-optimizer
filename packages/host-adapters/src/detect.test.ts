@@ -43,7 +43,7 @@ describe("host adapters", () => {
     const detections = await detectHostAdapters({
       homePath,
       workspaceRoot,
-      requestedHosts: ["codex", "claude-code"],
+      requestedHosts: ["codex", "claude-code", "kimi"],
     });
 
     expect(
@@ -51,7 +51,7 @@ describe("host adapters", () => {
         .filter((detection) => detection.detected)
         .map((detection) => detection.host)
         .sort(),
-    ).toEqual(["claude-code", "codex"]);
+    ).toEqual(["claude-code", "codex", "kimi"]);
   });
 
   it("installs hooks idempotently while preserving user configuration", async () => {
@@ -209,8 +209,151 @@ describe("host adapters", () => {
     await expect(readFile(codexPath, "utf8")).rejects.toThrow();
   });
 
+  it("installs the managed Kimi hook block idempotently while preserving user TOML", async () => {
+    const { homePath, workspaceRoot } = await createFixture();
+    const kimiPath = path.join(homePath, ".kimi-code", "config.toml");
+    const userContent = [
+      "# my kimi settings",
+      'model = "kimi-k2"',
+      "",
+      "[[hooks]]",
+      'event = "PreToolUse"',
+      'command = "node ~/hooks/my-hook.mjs"',
+      "",
+    ].join("\n");
+    await mkdir(path.dirname(kimiPath), { recursive: true });
+    await writeFile(kimiPath, userContent);
+    const context = {
+      homePath,
+      workspaceRoot,
+      hookCommand,
+      requestedHosts: ["kimi"] as const,
+    };
+    const plan = await createHostInstallPlan(context);
+
+    expect(plan.changes.map((change) => change.path)).toEqual([kimiPath]);
+
+    const result = await applyDetectedHostInstallPlan(plan);
+    expect(result.applied).toHaveLength(1);
+
+    const written = await readFile(kimiPath, "utf8");
+    expect(written).toContain("# my kimi settings");
+    expect(written).toContain('command = "node ~/hooks/my-hook.mjs"');
+    expect(written).toContain(MANAGED_HOOK_MARKER);
+    expect(written).toContain('event = "UserPromptSubmit"');
+    expect(written).toContain("--host");
+
+    if (process.platform !== "win32") {
+      expect((await stat(kimiPath)).mode & 0o777).toBe(0o600);
+    }
+
+    const repeatedPlan = await createHostInstallPlan(context);
+    const repeatedResult = await applyDetectedHostInstallPlan(repeatedPlan);
+    expect(repeatedPlan.changes.every((change) => change.action === "unchanged")).toBe(
+      true,
+    );
+    expect(repeatedResult.applied).toEqual([]);
+    await expect(inspectHostAdapters(context)).resolves.toEqual([
+      expect.objectContaining({ host: "kimi", status: "installed" }),
+    ]);
+  });
+
+  it("diagnoses Kimi drift and uninstalls only the managed block", async () => {
+    const { homePath, workspaceRoot } = await createFixture();
+    const kimiPath = path.join(homePath, ".kimi-code", "config.toml");
+    const userContent = '# keep me\nmodel = "kimi-k2"\n';
+    await mkdir(path.dirname(kimiPath), { recursive: true });
+    await writeFile(kimiPath, userContent);
+    const context = {
+      homePath,
+      workspaceRoot,
+      hookCommand,
+      requestedHosts: ["kimi"] as const,
+    };
+    await applyDetectedHostInstallPlan(await createHostInstallPlan(context));
+
+    await expect(
+      inspectHostAdapters({ ...context, hookCommand: [...hookCommand, "--changed"] }),
+    ).resolves.toEqual([
+      expect.objectContaining({ host: "kimi", status: "version-mismatch" }),
+    ]);
+
+    const installedContent = await readFile(kimiPath, "utf8");
+    await writeFile(
+      kimiPath,
+      installedContent.replace("# <<< agent-token-optimizer managed hooks <<<", ""),
+    );
+    await expect(inspectHostAdapters(context)).resolves.toEqual([
+      expect.objectContaining({ host: "kimi", status: "invalid" }),
+    ]);
+    await writeFile(kimiPath, installedContent);
+
+    const uninstallResult = await applyDetectedHostInstallPlan(
+      await createHostUninstallPlan(context),
+    );
+    expect(uninstallResult.applied).toHaveLength(1);
+    await expect(readFile(kimiPath, "utf8")).resolves.toBe(userContent);
+    await expect(inspectHostAdapters(context)).resolves.toEqual([
+      expect.objectContaining({ host: "kimi", status: "not-installed" }),
+    ]);
+  });
+
+  it("targets KIMI_CODE_HOME for install, detection, and uninstall when set", async () => {
+    const { homePath, workspaceRoot } = await createFixture();
+    const kimiCodeHome = path.join(homePath, "custom-kimi-data");
+    const overridePath = path.join(kimiCodeHome, "config.toml");
+    const defaultPath = path.join(homePath, ".kimi-code", "config.toml");
+    const context = {
+      homePath,
+      workspaceRoot,
+      hookCommand,
+      requestedHosts: ["kimi"] as const,
+      env: { KIMI_CODE_HOME: kimiCodeHome },
+    };
+
+    const plan = await createHostInstallPlan(context);
+    expect(plan.changes.map((change) => change.path)).toEqual([overridePath]);
+
+    await applyDetectedHostInstallPlan(plan);
+    // The override file Kimi actually loads is written; the default path is not.
+    await expect(readFile(overridePath, "utf8")).resolves.toContain(MANAGED_HOOK_MARKER);
+    await expect(readFile(defaultPath, "utf8")).rejects.toThrow();
+
+    await expect(inspectHostAdapters(context)).resolves.toEqual([
+      expect.objectContaining({
+        host: "kimi",
+        configPath: overridePath,
+        status: "installed",
+      }),
+    ]);
+
+    const uninstallResult = await applyDetectedHostInstallPlan(
+      await createHostUninstallPlan(context),
+    );
+    expect(uninstallResult.applied.map((change) => change.path)).toEqual([overridePath]);
+    await expect(readFile(overridePath, "utf8")).resolves.not.toContain(
+      MANAGED_HOOK_MARKER,
+    );
+  });
+
+  it("falls back to <home>/.kimi-code when KIMI_CODE_HOME is unset or blank", async () => {
+    const { homePath, workspaceRoot } = await createFixture();
+    const defaultPath = path.join(homePath, ".kimi-code", "config.toml");
+    const context = {
+      homePath,
+      workspaceRoot,
+      hookCommand,
+      requestedHosts: ["kimi"] as const,
+      env: { KIMI_CODE_HOME: "   " },
+    };
+
+    const plan = await createHostInstallPlan(context);
+    expect(plan.changes.map((change) => change.path)).toEqual([defaultPath]);
+  });
+
   it("parses supported aliases and rejects deferred hosts", () => {
     expect(parseSupportedHosts("claude,codex")).toEqual(["claude-code", "codex"]);
+    expect(parseSupportedHosts("kimi-code,kimi")).toEqual(["kimi"]);
     expect(() => parseSupportedHosts("cursor")).toThrow("Unsupported host adapter");
   });
 });

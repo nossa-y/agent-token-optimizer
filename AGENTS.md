@@ -4,15 +4,16 @@ This file is the fast path for coding agents working in this repository.
 
 ## Objective
 
-Maintain a local `UserPromptSubmit` hook that gives Codex and Claude Code a small,
-relevant context pack before exploration. Do not introduce remote runtime dependencies,
-telemetry, or unproven performance claims.
+Maintain a local `UserPromptSubmit` hook that gives Codex, Claude Code, and Kimi Code a
+small, relevant context pack before exploration. Do not introduce remote runtime
+dependencies, telemetry, or unproven performance claims.
 
 ## Repository Map
 
 - `packages/cli`: commands, hook runtime, cache lifecycle
 - `packages/core`: discovery, analysis, ranking, context packs, redaction, SQLite store
-- `packages/host-adapters`: Codex and Claude Code hook install/doctor/uninstall
+- `packages/host-adapters`: Codex, Claude Code, and Kimi Code hook
+  install/doctor/uninstall
 - `packages/mcp-server`: secured advanced MCP surface; not installed by default
 - `packages/benchmarks`: offline and opt-in provider-backed paired evaluations
 - `packages/report-ui`: static evaluation report rendering

@@ -21,8 +21,8 @@ prompt -> local hook -> task assessment -> bounded context pack -> coding agent
 The hook runs locally, reads the active agent workspace, and injects at most 1,200
 estimated tokens by default. It does not make network requests or require an API key.
 
-Codex and Claude Code are supported for the first public release. Cursor is not yet in the
-supported contract because it does not use the same verified hook path.
+Codex, Claude Code, and Kimi Code are supported. Cursor is not yet in the supported
+contract because it does not use the same verified hook path.
 
 ## Install From A Local Clone
 
@@ -34,8 +34,8 @@ cd agent-token-optimizer
 corepack enable
 pnpm install --frozen-lockfile
 pnpm build
-pnpm ato install --hosts codex,claude-code
-pnpm ato doctor --hosts codex,claude-code
+pnpm ato install --hosts codex,claude-code,kimi
+pnpm ato doctor --hosts codex,claude-code,kimi
 ```
 
 The installed command points directly to this checkout. Keep the checkout in place. If you
@@ -43,35 +43,43 @@ move it, rerun `pnpm build` and `pnpm ato install` from the new location.
 
 The installer merges one managed hook without replacing existing hooks:
 
-| Host        | Managed file              |
-| ----------- | ------------------------- |
-| Codex       | `~/.codex/hooks.json`     |
-| Claude Code | `~/.claude/settings.json` |
+| Host        | Managed file               |
+| ----------- | -------------------------- |
+| Codex       | `~/.codex/hooks.json`      |
+| Claude Code | `~/.claude/settings.json`  |
+| Kimi Code   | `~/.kimi-code/config.toml` |
+
+For Codex and Claude Code the hook is merged into the host's JSON configuration. For Kimi
+Code the installer manages one clearly marked TOML block and never rewrites content
+outside its markers. When `KIMI_CODE_HOME` is set, the Kimi config is read from and
+written to `$KIMI_CODE_HOME/config.toml` instead of the default above, matching where Kimi
+Code loads it.
 
 Review the generated command before approving hook execution. Codex applies its normal
 hook trust review. Host hook behavior is documented by
-[OpenAI](https://learn.chatgpt.com/docs/hooks) and
-[Anthropic](https://code.claude.com/docs/en/hooks).
+[OpenAI](https://learn.chatgpt.com/docs/hooks),
+[Anthropic](https://code.claude.com/docs/en/hooks), and
+[Moonshot AI](https://github.com/MoonshotAI/kimi-code/blob/main/docs/en/customization/hooks.md).
 
 Preview changes without writing:
 
 ```sh
-pnpm ato install --hosts codex,claude-code --dry-run --json
+pnpm ato install --hosts codex,claude-code,kimi --dry-run --json
 ```
 
 ## Use It
 
-After installation, open Codex or Claude Code in any repository and submit a normal coding
-task. The host passes that repository's working directory to the local hook; you do not
-point the agent at the optimizer checkout.
+After installation, open Codex, Claude Code, or Kimi Code in any repository and submit a
+normal coding task. The host passes that repository's working directory to the local hook;
+you do not point the agent at the optimizer checkout.
 
 Useful lifecycle commands:
 
 ```sh
-pnpm ato doctor --hosts codex,claude-code
+pnpm ato doctor --hosts codex,claude-code,kimi
 pnpm ato cache status
 pnpm ato cache clear
-pnpm ato uninstall --hosts codex,claude-code
+pnpm ato uninstall --hosts codex,claude-code,kimi
 ```
 
 Uninstall removes only the managed hook group. Every changed host file is backed up before
@@ -83,8 +91,8 @@ To update:
 git pull --ff-only
 pnpm install --frozen-lockfile
 pnpm build
-pnpm ato install --hosts codex,claude-code
-pnpm ato doctor --hosts codex,claude-code
+pnpm ato install --hosts codex,claude-code,kimi
+pnpm ato doctor --hosts codex,claude-code,kimi
 ```
 
 ## Privacy And Security
