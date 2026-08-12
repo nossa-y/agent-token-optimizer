@@ -44,6 +44,45 @@ ALTER TABLE cache_records ADD COLUMN workspace_root_hash TEXT;
 
 CREATE INDEX IF NOT EXISTS idx_cache_records_workspace
   ON cache_records (workspace_root_hash);
+
+-- Backfill attribution for caches written before this column existed, using the
+-- established deterministic key contracts, so upgraded caches stay evictable by
+-- workspace. workspace_index and workspace_analysis keys are "<rootHash>:latest".
+UPDATE cache_records
+SET workspace_root_hash = substr(key, 1, length(key) - length(':latest'))
+WHERE workspace_root_hash IS NULL
+  AND kind IN ('workspace_index', 'workspace_analysis')
+  AND key LIKE '%:latest';
+
+-- file_summary keys are "summary:<rootHash>:<hash>:<path>".
+UPDATE cache_records
+SET workspace_root_hash = substr(key, 9, instr(substr(key, 9), ':') - 1)
+WHERE workspace_root_hash IS NULL
+  AND kind = 'file_summary'
+  AND key LIKE 'summary:_%:%';
+
+-- context_ranking warm-cache keys are "ranking:<rootHash>:<fingerprint>:<taskHash>".
+UPDATE cache_records
+SET workspace_root_hash = substr(key, 9, instr(substr(key, 9), ':') - 1)
+WHERE workspace_root_hash IS NULL
+  AND kind = 'context_ranking'
+  AND key LIKE 'ranking:_%:%';
+
+-- Remaining legacy rows for workspace-derived kinds carry no attribution in their
+-- key or value contract. Rather than silently retaining undeletable workspace
+-- data, invalidate these disposable cache rows once; they are recomputed on next
+-- use. Genuinely global kinds (for example benchmark_scenario) are left intact.
+DELETE FROM cache_records
+WHERE workspace_root_hash IS NULL
+  AND kind IN (
+    'context_pack',
+    'context_ranking',
+    'file_summary',
+    'user_prompt_hook_evidence',
+    'token_ledger',
+    'token_estimate',
+    'run_metric'
+  );
 `;
 
 const MIGRATIONS: readonly StoreMigration[] = [
@@ -68,6 +107,7 @@ export interface SqliteStoreOptions {
 export class SqliteStore implements AgentTokenStore {
   readonly #databasePath: string;
   #database: Database | undefined;
+  #sqlJs: SqlJsStatic | undefined;
   #persistCount = 0;
 
   public constructor(options: SqliteStoreOptions) {
@@ -85,6 +125,7 @@ export class SqliteStore implements AgentTokenStore {
     }
 
     const SQL = await loadSqlJs();
+    this.#sqlJs = SQL;
     this.#database = await openDatabase(SQL, this.#databasePath);
 
     try {
@@ -241,6 +282,10 @@ export class SqliteStore implements AgentTokenStore {
       return { workspaceRootHash, evicted: 0, evictedByKind: {} };
     }
 
+    // Snapshot the pre-eviction image so a failed persist can restore the live
+    // database, keeping memory and disk consistent (all-or-nothing eviction).
+    const snapshot = database.export();
+
     database.exec("BEGIN TRANSACTION");
     try {
       database.run(
@@ -253,9 +298,23 @@ export class SqliteStore implements AgentTokenStore {
       throw error;
     }
 
-    await this.#persist();
+    try {
+      await this.#persist();
+    } catch (error) {
+      this.#restoreFromSnapshot(snapshot);
+      throw error;
+    }
 
     return { workspaceRootHash, evicted, evictedByKind };
+  }
+
+  #restoreFromSnapshot(snapshot: Uint8Array): void {
+    if (!this.#sqlJs) {
+      throw new Error("Store has not been initialized.");
+    }
+
+    this.#database?.close();
+    this.#database = new this.#sqlJs.Database(snapshot);
   }
 
   public async clear(kind?: StoreRecordKind): Promise<number> {

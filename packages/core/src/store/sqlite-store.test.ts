@@ -1,7 +1,9 @@
-import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, rm, stat, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
+import initSqlJs from "sql.js";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type {
@@ -13,7 +15,11 @@ import type {
 } from "../contracts";
 import { SqliteStore, STORE_KINDS, StoreCorruptionError } from "./index";
 
+const require = createRequire(import.meta.url);
 const temporaryRoots: string[] = [];
+const cannotTestFilePermissions =
+  process.platform === "win32" ||
+  (typeof process.getuid === "function" && process.getuid() === 0);
 
 describe("SqliteStore", () => {
   afterEach(async () => {
@@ -186,6 +192,117 @@ describe("SqliteStore", () => {
     await store.close();
   });
 
+  it("backfills attribution and invalidates legacy rows when upgrading a v1 cache", async () => {
+    const databasePath = await createDatabasePath();
+    const workspaceA = "workspace-a-hash";
+    const workspaceB = "workspace-b-hash";
+    await writeV1Database(databasePath, [
+      // Workspace A rows whose attribution is deterministic from the key.
+      { kind: "workspace_index", key: `${workspaceA}:latest` },
+      { kind: "workspace_analysis", key: `${workspaceA}:latest` },
+      { kind: "file_summary", key: `summary:${workspaceA}:h1:src/a.ts` },
+      { kind: "context_ranking", key: `ranking:${workspaceA}:fp:th` },
+      // Workspace A rows that carry no key/value attribution (legacy, disposable).
+      { kind: "context_pack", key: "pack-legacy-a" },
+      { kind: "token_ledger", key: "user-prompt-hook:legacy-a" },
+      // Workspace B control (deterministic) and a genuinely global control.
+      { kind: "workspace_index", key: `${workspaceB}:latest` },
+      { kind: "benchmark_scenario", key: "scenario-global" },
+    ]);
+
+    const store = new SqliteStore({ databasePath });
+    await store.initialize();
+    try {
+      await expect(store.health()).resolves.toMatchObject({
+        migrationsApplied: [1, 2],
+      });
+
+      // Un-attributable legacy workspace rows are invalidated by the upgrade.
+      await expect(store.list(STORE_KINDS.contextPack)).resolves.toEqual([]);
+      await expect(store.list(STORE_KINDS.tokenLedger)).resolves.toEqual([]);
+      // The genuinely global row is retained.
+      await expect(store.list(STORE_KINDS.benchmarkScenario)).resolves.toHaveLength(1);
+
+      // Backfilled attribution makes the upgraded workspace evictable.
+      const result = await store.deleteByWorkspace(workspaceA);
+      expect(result.evictedByKind).toEqual({
+        [STORE_KINDS.workspaceIndex]: 1,
+        [STORE_KINDS.workspaceAnalysis]: 1,
+        [STORE_KINDS.fileSummary]: 1,
+        [STORE_KINDS.contextRanking]: 1,
+      });
+
+      const survivors = (
+        await Promise.all(Object.values(STORE_KINDS).map((kind) => store.list(kind)))
+      ).flat();
+      expect(survivors.map((record) => record.key).sort()).toEqual([
+        "scenario-global",
+        `${workspaceB}:latest`,
+      ]);
+    } finally {
+      await store.close();
+    }
+  });
+
+  it.skipIf(cannotTestFilePermissions)(
+    "restores the live and persisted database when eviction fails to persist",
+    async () => {
+      const databasePath = await createDatabasePath();
+      const store = new SqliteStore({ databasePath });
+      await store.initialize();
+
+      const workspaceA = "workspace-a-hash";
+      const attributionA = { workspaceRootHash: workspaceA };
+      await store.set(
+        STORE_KINDS.workspaceIndex,
+        "a:index",
+        createWorkspaceIndex(),
+        attributionA,
+      );
+      await store.set(
+        STORE_KINDS.contextPack,
+        "a:pack",
+        createContextPack(),
+        attributionA,
+      );
+      await store.set(
+        STORE_KINDS.tokenLedger,
+        "a:ledger",
+        createTokenLedger(),
+        attributionA,
+      );
+
+      const directory = path.dirname(databasePath);
+      await chmod(directory, 0o500);
+      try {
+        await expect(store.deleteByWorkspace(workspaceA)).rejects.toBeInstanceOf(Error);
+      } finally {
+        await chmod(directory, 0o700);
+      }
+
+      // The live store still holds every original record after the failed write.
+      const liveKeys = (
+        await Promise.all(Object.values(STORE_KINDS).map((kind) => store.list(kind)))
+      )
+        .flat()
+        .map((record) => record.key)
+        .sort();
+      expect(liveKeys).toEqual(["a:index", "a:ledger", "a:pack"]);
+      await store.close();
+
+      // The persisted file was never mutated, so a fresh open sees them too.
+      const reopened = new SqliteStore({ databasePath });
+      await reopened.initialize();
+      try {
+        await expect(reopened.list(STORE_KINDS.workspaceIndex)).resolves.toHaveLength(1);
+        await expect(reopened.list(STORE_KINDS.contextPack)).resolves.toHaveLength(1);
+        await expect(reopened.list(STORE_KINDS.tokenLedger)).resolves.toHaveLength(1);
+      } finally {
+        await reopened.close();
+      }
+    },
+  );
+
   it("surfaces corruption and can repair the local cache file", async () => {
     const databasePath = await createDatabasePath();
     await writeFile(databasePath, "not a sqlite database");
@@ -208,6 +325,51 @@ async function createDatabasePath(): Promise<string> {
   temporaryRoots.push(rootPath);
 
   return path.join(rootPath, "cache.sqlite");
+}
+
+/**
+ * Writes a real version-1 schema database (no `workspace_root_hash` column) so
+ * the upgrade path can be exercised end to end.
+ */
+async function writeV1Database(
+  databasePath: string,
+  records: readonly { readonly kind: string; readonly key: string }[],
+): Promise<void> {
+  const SQL = await initSqlJs({
+    locateFile: () => require.resolve("sql.js/dist/sql-wasm.wasm"),
+  });
+  const database = new SQL.Database();
+  database.run(`
+    CREATE TABLE cache_records (
+      kind TEXT NOT NULL,
+      key TEXT NOT NULL,
+      value_json TEXT NOT NULL,
+      content_hash TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (kind, key)
+    );
+    CREATE INDEX idx_cache_records_kind_updated ON cache_records (kind, updated_at);
+    CREATE TABLE schema_migrations (
+      version INTEGER PRIMARY KEY,
+      name TEXT NOT NULL,
+      applied_at TEXT NOT NULL
+    );
+    INSERT INTO schema_migrations (version, name, applied_at)
+      VALUES (1, 'initial_store', '2026-01-01T00:00:00.000Z');
+  `);
+
+  for (const record of records) {
+    database.run(
+      `INSERT INTO cache_records (kind, key, value_json, created_at, updated_at)
+       VALUES ($kind, $key, '{}', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z')`,
+      { $kind: record.kind, $key: record.key },
+    );
+  }
+
+  const bytes = database.export();
+  database.close();
+  await writeFile(databasePath, Buffer.from(bytes), { mode: 0o600 });
 }
 
 function createWorkspaceIndex(): WorkspaceIndex {

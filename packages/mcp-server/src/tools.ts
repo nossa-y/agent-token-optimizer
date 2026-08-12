@@ -491,6 +491,10 @@ export function createToolHandlers(
             warnings,
           });
           const cachePath = resolveCachePath(input.cachePath, options);
+          // Attribute run records to the server's canonical configured workspace
+          // (never caller-controlled input) so `cache evict --workspace` removes
+          // them. Absent a configured workspace they are legitimately global.
+          const runAttribution = await resolveConfiguredWorkspaceAttribution(options);
           const ledgerEntries = input.runId
             ? createTokenLedgerEntries(input, operationId, generatedAt)
             : [];
@@ -504,7 +508,12 @@ export function createToolHandlers(
             : undefined;
           const persisted = cachePath
             ? await withStore(cachePath, async (store) => {
-                await store.set(STORE_KINDS.runMetric, operationId, runMetric);
+                await store.set(
+                  STORE_KINDS.runMetric,
+                  operationId,
+                  runMetric,
+                  runAttribution,
+                );
 
                 if (input.runId) {
                   const existing = await store.get(STORE_KINDS.tokenLedger, input.runId);
@@ -515,7 +524,12 @@ export function createToolHandlers(
                     ...(existing ? { existing } : {}),
                     entries: ledgerEntries,
                   });
-                  await store.set(STORE_KINDS.tokenLedger, input.runId, tokenLedger);
+                  await store.set(
+                    STORE_KINDS.tokenLedger,
+                    input.runId,
+                    tokenLedger,
+                    runAttribution,
+                  );
                 }
 
                 return true;
@@ -1102,6 +1116,23 @@ async function runTool(input: {
     });
 
     throw error;
+  }
+}
+
+async function resolveConfiguredWorkspaceAttribution(
+  options: ToolHandlerOptions,
+): Promise<{ readonly workspaceRootHash: string } | undefined> {
+  if (!options.workspaceRoot) {
+    return undefined;
+  }
+
+  try {
+    const identity = await getWorkspaceIdentity(options.workspaceRoot);
+    return { workspaceRootHash: identity.rootHash };
+  } catch {
+    // A misconfigured workspace root should not fail run recording; the records
+    // stay unattributed rather than being wrongly assigned.
+    return undefined;
   }
 }
 
